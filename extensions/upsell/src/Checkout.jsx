@@ -30,13 +30,13 @@ function App() {
   const [adding, setAdding] = useState(false);
   const [showError, setShowError] = useState(false);
   const lines = useCartLines();
+  const { subscription_desc } = useSettings();
 
   // Protection product global ID
-  const protectionProductId = 'gid://shopify/Product/9080133746933';
-  
+  const protectionProductId = 'gid://shopify/Product/9122280964341';
+
   // Find protection product in cart (if exists)
-  // This will automatically re-evaluate when lines changes
-  const protectionLineItem = lines.find(line => 
+  const protectionLineItem = lines.find(line =>
     line.merchandise.product && line.merchandise.product.id === protectionProductId
   );
   const protectionInCart = Boolean(protectionLineItem);
@@ -52,19 +52,33 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [showError]);
+  useEffect(() => {
+    if (!loading && products.length > 0 && !protectionInCart) {
+      const product = products[0];
+      const variant = product.variants.nodes[0];
+      const sellingPlanAllocations = variant?.sellingPlanAllocations?.nodes || [];
 
-  async function handleAddToCart(variantId) {
+      const subscriptionPlan = sellingPlanAllocations.find(allocation =>
+        allocation.sellingPlan.recurringDeliveries === true
+      );
+
+      if (subscriptionPlan && variant.id) {
+        handleAddToCart(variant.id, subscriptionPlan.sellingPlan.id);
+      }
+    }
+  }, [loading, products, protectionInCart]);
+  async function handleAddToCart(variantId, sellingPlanId = null) {
     if (adding) return;
-    
+
     setAdding(true);
-    
+
     try {
       let result;
       // Re-check current cart state to be safe
-      const currentProtectionLineItem = lines.find(line => 
+      const currentProtectionLineItem = lines.find(line =>
         line.merchandise.product && line.merchandise.product.id === protectionProductId
       );
-      
+
       if (currentProtectionLineItem) {
         result = await applyCartLinesChange({
           type: 'removeCartLine',
@@ -72,11 +86,19 @@ function App() {
           quantity: currentProtectionLineItem.quantity
         });
       } else {
-        result = await applyCartLinesChange({
+        // Create cart line with selling plan
+        const cartLineInput = {
           type: 'addCartLine',
           merchandiseId: variantId,
           quantity: 1,
-        });
+        };
+
+        // Add selling plan if provided
+        if (sellingPlanId) {
+          cartLineInput.sellingPlanId = sellingPlanId;
+        }
+
+        result = await applyCartLinesChange(cartLineInput);
       }
 
       if (result.type === 'error') {
@@ -100,6 +122,7 @@ function App() {
             nodes {
               id
               title
+              description
               images(first:1){
                 nodes {
                   url
@@ -110,6 +133,44 @@ function App() {
                   id
                   price {
                     amount
+                  }
+                  sellingPlanAllocations(first: 10) {
+                    nodes {
+                      sellingPlan {
+                        id
+                        name
+                        description
+                        options {
+                          name
+                          value
+                        }
+                        priceAdjustments {
+                          adjustmentValue {
+                            ... on SellingPlanFixedAmountPriceAdjustment {
+                              adjustmentAmount {
+                                amount
+                                currencyCode
+                              }
+                            }
+                            ... on SellingPlanPercentagePriceAdjustment {
+                              adjustmentPercentage
+                            }
+                          }
+                          orderCount
+                        }
+                        recurringDeliveries
+                      }
+                      priceAdjustments {
+                        price {
+                          amount
+                          currencyCode
+                        }
+                        compareAtPrice {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -153,6 +214,7 @@ function App() {
       showError={showError}
       protectionInCart={protectionInCart}
       upsellTitle={upsell_title}
+      subsDescription={subscription_desc}
     />
   );
 }
@@ -192,24 +254,55 @@ function getProductsOnOffer(lines, products) {
     return !isProductVariantInCart;
   });
   */
-  
+
   return products;
 }
 
-function ProductOffer({ product, i18n, adding, handleAddToCart, protectionInCart, showError, upsellTitle }) {
-  const { images, title, variants } = product;
-  // const renderPrice = i18n.formatCurrency(variants.nodes[0].price.amount);
-  const fullPrice = i18n.formatCurrency(variants.nodes[0].price.amount);
+function ProductOffer({ product, i18n, adding, handleAddToCart, protectionInCart, showError, upsellTitle, subsDescription }) {
+  const { images, title, variants, description } = product;
+  const variant = variants.nodes[0];
+
+  // Get the selling plan (subscription plan)
+  const sellingPlanAllocations = variant?.sellingPlanAllocations?.nodes || [];
+  const subscriptionPlan = sellingPlanAllocations.find(allocation =>
+    allocation.sellingPlan.recurringDeliveries === true
+  );
+
+  // Use subscription price if available, otherwise use regular price
+  const price = subscriptionPlan?.priceAdjustments?.price?.amount || variant.price.amount;
+  const compareAtPrice = subscriptionPlan?.priceAdjustments?.compareAtPrice?.amount;
+
+  const fullPrice = i18n.formatCurrency(price);
   const renderPrice = fullPrice.replace(/[A-Z]{3}\s*/, ''); // Removes currency code like USD, EUR, etc.
+
   const imageUrl =
     images.nodes[0]?.url ??
     'https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_medium.png?format=webp&v=1530129081';
 
   const handleOfferClick = () => {
     if (!adding) {
-      handleAddToCart(variants.nodes[0].id);
+      // Pass selling plan ID if subscription plan exists
+      const sellingPlanId = subscriptionPlan?.sellingPlan?.id || null;
+      handleAddToCart(variant.id, sellingPlanId);
     }
   };
+
+  // Get subscription frequency info
+  const getSubscriptionInfo = () => {
+    if (!subscriptionPlan) return null;
+
+    const options = subscriptionPlan.sellingPlan.options || [];
+    const deliveryOption = options.find(option =>
+      option.name.toLowerCase().includes('delivery') ||
+      option.name.toLowerCase().includes('frequency')
+    );
+
+    return deliveryOption?.value || 'Monthly';
+  };
+
+  const subscriptionInfo = getSubscriptionInfo();
+  const hasSavings = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(price);
+
 
   return (
     <>
@@ -221,21 +314,21 @@ function ProductOffer({ product, i18n, adding, handleAddToCart, protectionInCart
         onPress={handleOfferClick}
         disabled={adding}
       >
-        <InlineLayout 
-          columns={['auto', '15%', 'fill', 'auto']}
+        <InlineLayout
+          columns={['auto', '12%', 'fill', 'auto']}
           spacing="base"
           blockAlignment="center"
         >
           <View padding="none" blockAlignment="center">
-            <Checkbox 
-              id="package-protection" 
+            <Checkbox
+              id="package-protection"
               name="package-protection"
               checked={protectionInCart}
               disabled={adding}
               onChange={handleOfferClick}
             />
           </View>
-          
+
           <View padding="none" blockAlignment="center">
             <Image
               border="base"
@@ -246,20 +339,25 @@ function ProductOffer({ product, i18n, adding, handleAddToCart, protectionInCart
               accessibilityDescription={title}
             />
           </View>
-          
+
           <View padding="none" blockAlignment="center">
             <Text size="base" emphasis="bold">{upsellTitle}</Text>
             <Text appearance="subdued">
-              If your package is lost, damaged or stolen in transit, our insurance offers coverage to replace your order, no questions asked.
+              {description}
             </Text>
+            <BlockStack spacing="extraTight">
+              <Text size="small" appearance="success">
+                {subsDescription}
+              </Text>
+            </BlockStack>
           </View>
-          
+
           <View padding="none" blockAlignment="center" inlineAlignment="end">
-            <Text>{renderPrice}</Text>
+            <Text>FREE</Text>
           </View>
         </InlineLayout>
       </Pressable>
-      
+
       {showError && <ErrorBanner />}
     </>
   );

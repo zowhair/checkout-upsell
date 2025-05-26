@@ -53,7 +53,7 @@ function Extension() {
   // 3. Render a UI
   return (
     <BlockLayout rows={[50, 'fill']} border="none" >
-      <View border="none" padding="base" blockAlignment="start">
+      <View border="none" padding={["base", "none"]} blockAlignment="start">
         <InlineLayout columns={['fill']} padding="none" >
           <Heading>{banner_title}</Heading>
         </InlineLayout>

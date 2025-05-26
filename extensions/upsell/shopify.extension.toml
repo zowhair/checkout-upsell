@@ -48,5 +48,11 @@ api_access = true
     [[extensions.settings.fields]]
     key = "upsell_title"
     type = "single_line_text_field"
-    name = "Upsell Product Title"
+    name = "Subscription Title"
     description = "Enter title of upsell product"
+
+    [[extensions.settings.fields]]
+    key = "subscription_desc"
+    type = "single_line_text_field"
+    name = "Subscription Description"
+    description = "Enter description for subscription."

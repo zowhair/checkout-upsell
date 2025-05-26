@@ -59,7 +59,7 @@ function Extension() {
 
       <View border="none" padding="none" blockAlignment="start">
         <InlineLayout columns={['35%', '65%']} padding="none">
-          <View border="none" padding="base" blockAlignment="start">
+          <View border="none" padding={["base", "none"]} blockAlignment="start">
             <Image source="https://cdn.shopify.com/s/files/1/0798/0911/8242/files/flo_test_check_out_page_-_review_pic_1.webp?v=1747763252" />
             <View padding={["base", "none"]}>
               <Text>{image_text}</Text>
